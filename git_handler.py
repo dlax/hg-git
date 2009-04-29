@@ -124,11 +124,30 @@ class GitHandler(object):
         self.upload_pack(remote_name)
         self.save_map()
 
-    # TODO: make these actually save and recall
     def remote_add(self, remote_name, git_url):
         self._config['remote.' + remote_name + '.url'] = git_url
         self.save_config()
 
+    def remote_remove(self, remote_name):
+        key = 'remote.' + remote_name + '.url'
+        if key in self._config:
+            del self._config[key]
+        self.save_config()
+
+    def remote_show(self, remote_name):
+        key = 'remote.' + remote_name + '.url'
+        if key in self._config:
+            name = self._config[key]
+            print "URL for " + remote_name + " : " + name
+        else:
+            print "No remote named : " + remote_name
+        return 
+
+    def remote_list(self):
+        for key, value in self._config.iteritems():
+            if key[0:6] == 'remote':
+                print key + "\t" + value
+            
     def remote_name_to_url(self, remote_name):
         return self._config['remote.' + remote_name + '.url']
 
@@ -177,7 +196,7 @@ class GitHandler(object):
         commit['author'] = ctx.user() + ' ' + str(int(time)) + ' ' + seconds_to_offset(timezone) 
         message = ctx.description()
         commit['message'] = ctx.description()
-        commit['message'] += "\n\n--HG EXTRAS--\n"
+        commit['message'] += "\n\n--HG--\n"
         commit['message'] += "branch : " + ctx.branch() + "\n"
         
         commit['parents'] = []
@@ -237,7 +256,9 @@ class GitHandler(object):
         # sort by tree depth, so we write the deepest trees first
         dirs = trees.keys()
         dirs.sort(lambda a, b: len(b.split('/'))-len(a.split('/')))
-
+        dirs.remove('/')
+        dirs.append('/')
+        
         # write all the trees
         tree_sha = None
         tree_shas = {}
@@ -270,15 +291,21 @@ class GitHandler(object):
         except:
             raise
 
-    # TODO : for now, we'll just push all heads 
+    # TODO : for now, we'll just push all heads that match remote heads
     #        * we should have specified push, tracking branches and --all
     # takes a dict of refs:shas from the server and returns what should be 
     # pushed up
     def get_changed_refs(self, refs):
         keys = refs.keys()
-        if not keys:
-            return None
+        
         changed = []
+        if not keys: 
+            return None
+            
+        # TODO : this is a huge hack
+        if keys[0] == 'capabilities^{}': # nothing on the server yet - first push
+            changed.append(("0"*40, self.git.ref('master'), 'refs/heads/master'))
+            
         for ref_name in keys:
             parts = ref_name.split('/')
             if parts[0] == 'refs': # strip off 'refs/heads'
@@ -452,6 +479,20 @@ class GitHandler(object):
                 return transport(host), '/' + path
         # if its not git or git+ssh, try a local url..
         return SubprocessGitClient(), uri
+
+    def clear(self):
+        git_dir = self.repo.join('git')
+        mapfile = self.repo.join('git-mapfile')
+        if os.path.exists(git_dir):        
+            for root, dirs, files in os.walk(git_dir, topdown=False):
+                for name in files:
+                    os.remove(os.path.join(root, name))
+                for name in dirs:
+                    os.rmdir(os.path.join(root, name))
+            os.rmdir(git_dir)
+        if os.path.exists(mapfile):
+            os.remove(mapfile)
+        
 
 ''
 """
